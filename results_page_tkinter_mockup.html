@@ -1,0 +1,83 @@
+<h2 class="sr-only" style="position:absolute;left:-9999px">Mockup of the in-app analysis results page: KPI cards, search and filter bar, grouped log table with highlighted issue cells, legend and row details panel.</h2>
+<div style="background: var(--surface-1); border-radius: 12px; padding: 14px; font-family: var(--font-sans);">
+  <div style="background:#eef1f5; border-radius:8px; padding:14px; color:#1f2937;">
+    <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:10px;">
+      <span style="font-size:17px; font-weight:500;">Analysis Results</span>
+      <span style="font-size:11px; color:#6b7280;">log_packet_analysis_output_20260709.xlsx</span>
+      <span style="margin-left:auto; background:#2563eb; color:#fff; font-size:11px; padding:5px 12px; border-radius:5px;">Open Excel file</span>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <div style="background:#fff; border:1px solid #d7dce3; border-radius:6px; display:flex; overflow:hidden;">
+        <div style="width:4px; background:#2563eb;"></div>
+        <div style="padding:6px 14px;"><div style="font-size:16px; font-weight:500;">1,248</div><div style="font-size:10px; color:#6b7280;">Total Rows</div></div>
+      </div>
+      <div style="background:#fff; border:1px solid #d7dce3; border-radius:6px; display:flex; overflow:hidden;">
+        <div style="width:4px; background:#fde68a;"></div>
+        <div style="padding:6px 14px;"><div style="font-size:16px; font-weight:500; color:#92400e;">14</div><div style="font-size:10px; color:#6b7280;">Out of Order Sequence</div></div>
+      </div>
+      <div style="background:#fff; border:1px solid #d7dce3; border-radius:6px; display:flex; overflow:hidden;">
+        <div style="width:4px; background:#fecaca;"></div>
+        <div style="padding:6px 14px;"><div style="font-size:16px; font-weight:500; color:#991b1b;">3</div><div style="font-size:10px; color:#6b7280;">Missing Message</div></div>
+      </div>
+      <div style="background:#fff; border:1px solid #d7dce3; border-radius:6px; display:flex; overflow:hidden;">
+        <div style="width:4px; background:#fed7aa;"></div>
+        <div style="padding:6px 14px;"><div style="font-size:16px; font-weight:500; color:#9a3412;">7</div><div style="font-size:10px; color:#6b7280;">Missing Packetswitch Data</div></div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:11px;">
+      <span>Search:</span>
+      <span style="background:#fff; border:1px solid #d7dce3; border-radius:4px; padding:4px 10px; color:#9ca3af; width:150px;">12 8B…</span>
+      <span>Show:</span>
+      <span style="background:#fff; border:1px solid #d7dce3; border-radius:4px; padding:4px 10px;">Issues only ▾</span>
+      <span style="background:#d7dce3; border-radius:4px; padding:4px 10px;">Clear</span>
+      <span style="margin-left:auto; color:#6b7280;">24 of 1,248 rows shown</span>
+    </div>
+    <div style="border:1px solid #d7dce3; border-radius:6px; overflow:hidden; font-size:10px;">
+      <div style="display:grid; grid-template-columns: 34px 1.6fr 0.9fr 1.6fr 0.9fr 1.6fr 1.3fr; background:#111827; color:#e5e7eb; text-align:center; font-weight:500;">
+        <div style="padding:5px 2px;"></div>
+        <div style="padding:5px 2px; border-left:1px solid #1f2937;">IXL Log</div>
+        <div style="padding:5px 2px; border-left:1px solid #1f2937;">Time Diff</div>
+        <div style="padding:5px 2px; border-left:1px solid #1f2937;">Comm Manager Log</div>
+        <div style="padding:5px 2px; border-left:1px solid #1f2937;">Time Diff</div>
+        <div style="padding:5px 2px; border-left:1px solid #1f2937;">Wireshark Log</div>
+        <div style="padding:5px 2px; border-left:1px solid #1f2937;">Packetswitch Data</div>
+      </div>
+      <div style="display:grid; grid-template-columns: 34px 0.8fr 0.8fr 0.9fr 0.8fr 0.6fr 0.8fr 0.6fr 0.7fr 0.6fr 0.65fr; background:#1f2937; color:#f9fafb; text-align:center; font-weight:500;">
+        <div style="padding:4px 2px;">#</div>
+        <div style="padding:4px 2px;">time tag ▲</div>
+        <div style="padding:4px 2px;">msg type</div>
+        <div style="padding:4px 2px;">data (hex)</div>
+        <div style="padding:4px 2px;">time tag</div>
+        <div style="padding:4px 2px;">msg #</div>
+        <div style="padding:4px 2px;">time tag</div>
+        <div style="padding:4px 2px;">msg #</div>
+        <div style="padding:4px 2px;">time tag</div>
+        <div style="padding:4px 2px;">comp.</div>
+        <div style="padding:4px 2px;">data type</div>
+      </div>
+      <div style="display:grid; grid-template-columns: 34px 0.8fr 0.8fr 0.9fr 0.8fr 0.6fr 0.8fr 0.6fr 0.7fr 0.6fr 0.65fr; background:#fff; color:#1f2937; text-align:center;">
+        <div style="padding:4px 2px; color:#6b7280;">41</div><div style="padding:4px 2px;">08:12:04.113</div><div style="padding:4px 2px;">Ind (12 8B)</div><div style="padding:4px 2px;">02 02 12 8B…</div><div style="padding:4px 2px;">08:12:04.201</div><div style="padding:4px 2px;">3C</div><div style="padding:4px 2px;">08:12:04.243</div><div style="padding:4px 2px;">3C</div><div style="padding:4px 2px;">08:12:04</div><div style="padding:4px 2px;">Point P4</div><div style="padding:4px 2px;">Ind</div>
+      </div>
+      <div style="display:grid; grid-template-columns: 34px 0.8fr 0.8fr 0.9fr 0.8fr 0.6fr 0.8fr 0.6fr 0.7fr 0.6fr 0.65fr; background:#f6f8fa; color:#1f2937; text-align:center;">
+        <div style="padding:4px 2px; color:#6b7280;">42</div><div style="padding:4px 2px;">08:12:06.118</div><div style="padding:4px 2px;">Control (12 01)</div><div style="padding:4px 2px;">02 02 12 01…</div><div style="padding:4px 2px;">08:12:06.190</div><div style="padding:4px 2px;">3F</div><div style="padding:4px 2px;">08:12:06.228</div><div style="padding:4px 2px; background:#fde68a; color:#92400e; font-weight:500;">44</div><div style="padding:4px 2px;">08:12:06</div><div style="padding:4px 2px;">Signal S2</div><div style="padding:4px 2px;">Control</div>
+      </div>
+      <div style="display:grid; grid-template-columns: 34px 0.8fr 0.8fr 0.9fr 0.8fr 0.6fr 0.8fr 0.6fr 0.7fr 0.6fr 0.65fr; background:#dbeafe; color:#1f2937; text-align:center;">
+        <div style="padding:4px 2px; color:#6b7280;">43</div><div style="padding:4px 2px;">08:12:08.101</div><div style="padding:4px 2px;">Ind (12 8B)</div><div style="padding:4px 2px;">02 02 12 8B…</div><div style="padding:4px 2px;">08:12:08.177</div><div style="padding:4px 2px;">42</div><div style="padding:4px 2px;">08:12:08.215</div><div style="padding:4px 2px;">42</div><div style="padding:4px 2px; background:#fed7aa; color:#9a3412;">—</div><div style="padding:4px 2px; background:#fed7aa; color:#9a3412;">—</div><div style="padding:4px 2px; background:#fed7aa; color:#9a3412;">—</div>
+      </div>
+      <div style="display:grid; grid-template-columns: 34px 0.8fr 0.8fr 0.9fr 0.8fr 0.6fr 0.8fr 0.6fr 0.7fr 0.6fr 0.65fr; background:#fff; color:#1f2937; text-align:center;">
+        <div style="padding:4px 2px; color:#6b7280;">44</div><div style="padding:4px 2px;">08:12:10.144</div><div style="padding:4px 2px;">Control (12 01)</div><div style="padding:4px 2px;">02 02 12 01…</div><div style="padding:4px 2px;">08:12:10.199</div><div style="padding:4px 2px;">45</div><div style="padding:4px 2px;">08:12:10.240</div><div style="padding:4px 2px; background:#fecaca; color:#991b1b; font-weight:500;">45</div><div style="padding:4px 2px;">08:12:10</div><div style="padding:4px 2px;">Point P1</div><div style="padding:4px 2px;">Ind</div>
+      </div>
+    </div>
+    <div style="display:flex; gap:14px; margin-top:8px; font-size:10px; color:#6b7280; align-items:flex-start;">
+      <div style="display:flex; gap:12px; padding-top:4px;">
+        <span><span style="display:inline-block; width:10px; height:10px; background:#fde68a; border:1px solid #d7dce3; vertical-align:-1px;"></span> Out of Order Sequence</span>
+        <span><span style="display:inline-block; width:10px; height:10px; background:#fecaca; border:1px solid #d7dce3; vertical-align:-1px;"></span> Missing Message</span>
+        <span><span style="display:inline-block; width:10px; height:10px; background:#fed7aa; border:1px solid #d7dce3; vertical-align:-1px;"></span> Missing Packetswitch Data</span>
+      </div>
+      <div style="margin-left:auto; background:#fff; border:1px solid #d7dce3; border-radius:6px; padding:6px 10px; width:250px; color:#1f2937;">
+        <div style="font-weight:500; font-size:10px;">Row details</div>
+        <div style="color:#6b7280;">⚠ Missing Packetswitch Data<br>IXL Log · time tag: 08:12:08.101<br>Wireshark Log · msg number: 42 …</div>
+      </div>
+    </div>
+  </div>
+</div>
