@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Org Chart Builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg: #F5F6F8;
+    --panel: #FFFFFF;
+    --ink: #1B2430;
+    --ink-soft: #5B6572;
+    --line: #D8DCE3;
+    --filled: #2F6B57;
+    --filled-bg: #EAF3EF;
+    --tbd: #B54B3A;
+    --tbd-bg: #FBEDE9;
+    --accent: #1B2430;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  #sidebar{
+    width: 300px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    padding: 24px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  #sidebar h1{
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin: 0 0 2px 0;
+  }
+  #sidebar .sub{
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0 0 8px 0;
+    line-height: 1.5;
+  }
+
+  .drop{
+    border: 1.5px dashed var(--line);
+    border-radius: 6px;
+    padding: 22px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .drop:hover, .drop.drag{
+    border-color: var(--ink);
+    background: #FAFAFB;
+    color: var(--ink);
+  }
+  .drop strong{ color: var(--ink); font-weight: 600; }
+  #fileInput{ display:none; }
+
+  .btnrow{ display:flex; flex-direction:column; gap:8px; }
+  button.action{
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 10px 14px;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+    transition: background .15s, border-color .15s;
+  }
+  button.action:hover{ background: #F2F3F5; border-color: var(--ink-soft); }
+  button.primary{
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+  }
+  button.primary:hover{ background: #333d4a; }
+  button.primary:disabled{ opacity: .4; cursor: not-allowed; }
+
+  .divider{ height:1px; background: var(--line); margin: 4px 0; }
+
+  #stats{ font-size: 12px; color: var(--ink-soft); line-height: 1.9; }
+  #stats .row{ display:flex; justify-content: space-between; }
+  #stats .n{ font-family: 'IBM Plex Mono', monospace; color: var(--ink); font-weight: 500; }
+
+  .legend{ font-size: 12px; color: var(--ink-soft); display:flex; flex-direction:column; gap:8px; }
+  .legend .item{ display:flex; align-items:center; gap:8px; }
+  .swatch{ width:14px; height:14px; border-radius:3px; flex-shrink:0; }
+  .swatch.filled{ background: var(--filled-bg); border: 1.5px solid var(--filled); }
+  .swatch.tbd{ background: var(--tbd-bg); border: 1.5px dashed var(--tbd); }
+
+  #fileName{ font-size: 11.5px; color: var(--ink-soft); font-family:'IBM Plex Mono',monospace; word-break: break-all; }
+
+  /* Main canvas */
+  #main{
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    background:
+      linear-gradient(var(--bg) 0%, var(--bg) 100%),
+      repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(27,36,48,0.035) 24px),
+      repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(27,36,48,0.035) 24px);
+  }
+
+  #empty{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    flex-direction: column;
+    gap: 10px;
+    color: var(--ink-soft);
+    text-align:center;
+    padding: 20px;
+  }
+  #empty .big{ font-size: 15px; font-weight: 600; color: var(--ink); }
+  #empty .small{ font-size: 13px; max-width: 320px; line-height:1.6; }
+
+  #chartWrap{
+    padding: 48px;
+    display: inline-block;
+    min-width: 100%;
+  }
+  #chartHeader{
+    margin-bottom: 24px;
+  }
+  #chartHeader .title{ font-size: 20px; font-weight: 700; }
+  #chartHeader .meta{ font-size: 12px; color: var(--ink-soft); font-family:'IBM Plex Mono',monospace; margin-top: 4px;}
+
+  svg text{ font-family: 'IBM Plex Sans', sans-serif; }
+  .node-role{ font-family: 'IBM Plex Mono', monospace; }
+
+  .toolbar{
+    position: absolute;
+    top: 16px; right: 16px;
+    display: flex;
+    gap: 8px;
+    z-index: 5;
+  }
+  .zbtn{
+    width: 30px; height: 30px;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .zbtn:hover{ background: #F2F3F5; }
+
+  ::-webkit-scrollbar{ width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track{ background: transparent; }
+  ::-webkit-scrollbar-thumb{ background: #C9CDD4; border-radius: 6px; border: 3px solid var(--bg); }
+
+  .node-group{ cursor: pointer; }
+  .node-group:hover rect:first-child{ filter: brightness(0.97); }
+
+  #modalOverlay{
+    position: fixed; inset: 0;
+    background: rgba(27,36,48,0.35);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  #modalOverlay.show{ display: flex; }
+  #modalBox{
+    background: #fff;
+    border-radius: 8px;
+    width: 380px;
+    max-width: 92vw;
+    padding: 22px 22px 18px;
+    box-shadow: 0 12px 40px rgba(27,36,48,0.25);
+  }
+  #modalBox h2{
+    font-size: 15px; margin: 0 0 4px 0; font-weight: 700;
+  }
+  #modalBox .roleTag{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+  }
+  .field{ margin-bottom: 12px; }
+  .field label{
+    display:block; font-size: 11.5px; font-weight: 600; color: var(--ink-soft);
+    margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .field input{
+    width: 100%;
+    font-family: inherit;
+    font-size: 13.5px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--ink);
+  }
+  .field input:focus{ outline: none; border-color: var(--ink); }
+  .field .hint{ font-size: 11px; color: var(--ink-soft); margin-top: 4px; }
+  .modalBtns{ display:flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .modalBtns button{
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    padding: 8px 16px; border-radius: 5px; cursor: pointer;
+  }
+  #modalCancel{ background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  #modalCancel:hover{ background: #F2F3F5; }
+  #modalSave{ background: var(--ink); border: 1px solid var(--ink); color: #fff; }
+  #modalSave:hover{ background: #333d4a; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div>
+    <h1>Org Chart Builder</h1>
+    <p class="sub">Upload your roster. Chart rebuilds automatically — open roles show as TBD.</p>
+  </div>
+
+  <div class="drop" id="dropZone">
+    <div><strong>Click to upload</strong> or drag file here</div>
+    <div style="margin-top:4px;">.xlsx or .csv</div>
+  </div>
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+  <div id="fileName"></div>
+
+  <div class="btnrow">
+    <button class="action" id="sampleBtn">Load sample data</button>
+    <button class="action" id="templateBtn">Download blank template</button>
+  </div>
+
+  <div style="font-size:11.5px; color:var(--ink-soft); line-height:1.6; background:#F2F3F5; border-radius:5px; padding:9px 11px;">
+    Tip: click any box in the chart to edit it directly — no need to touch Excel for small changes.
+  </div>
+
+  <div class="divider"></div>
+
+  <div id="stats" style="display:none;">
+    <div class="row"><span>Total roles</span><span class="n" id="statTotal">0</span></div>
+    <div class="row"><span>Filled</span><span class="n" id="statFilled">0</span></div>
+    <div class="row"><span>Open (TBD)</span><span class="n" id="statTbd">0</span></div>
+  </div>
+
+  <div class="legend" id="legend" style="display:none;">
+    <div class="item"><span class="swatch filled"></span>Filled role</div>
+    <div class="item"><span class="swatch tbd"></span>Open — TBD</div>
+    <div class="item"><span class="swatch" style="background:#EEF0F2; border:1.5px solid #5B6572;"></span>Manager referenced, not in roster</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="btnrow">
+    <button class="action primary" id="pdfBtn" disabled>Export chart as PDF</button>
+    <button class="action" id="downloadDataBtn" disabled>Download updated data (CSV)</button>
+  </div>
+
+  <div style="font-size:11.5px; color:var(--ink-soft); line-height:1.7; margin-top:auto; padding-top:12px;">
+    Expected columns: <b>Role ID, Company, Project Role, Employee Name, Reporting Manager, Comments</b>. Column order and capitalization don't matter — just the names. A role with no Reporting Manager (or one that isn't matched) becomes a top-level box.
+  </div>
+</div>
+
+<div id="main">
+  <div id="empty">
+    <div class="big">No data loaded yet</div>
+    <div class="small">Upload your Excel file, or load sample data to see how it works. Re-upload anytime your roster changes — the chart regenerates instantly.</div>
+  </div>
+  <div class="toolbar" id="toolbar" style="display:none;">
+    <button class="zbtn" id="zoomOut">–</button>
+    <button class="zbtn" id="zoomIn">+</button>
+  </div>
+  <div id="chartWrap" style="display:none;">
+    <div id="chartHeader">
+      <div class="title" id="chartTitle">Org Chart</div>
+      <div class="meta" id="chartMeta"></div>
+    </div>
+    <div id="svgHost"></div>
+  </div>
+</div>
+
+<div id="modalOverlay">
+  <div id="modalBox">
+    <h2 id="modalTitle">Edit role</h2>
+    <div class="roleTag" id="modalRoleTag"></div>
+    <div class="field">
+      <label>Employee Name</label>
+      <input type="text" id="editEmployeeName" placeholder="Leave blank to show TBD">
+    </div>
+    <div class="field">
+      <label>Project Role</label>
+      <input type="text" id="editProjectRole">
+    </div>
+    <div class="field">
+      <label>Reporting Manager</label>
+      <input type="text" id="editReportingManager" placeholder="Name or Role ID">
+      <div class="hint">Match an existing Employee Name or Role ID to reposition this box in the chart.</div>
+    </div>
+    <div class="field">
+      <label>Company</label>
+      <input type="text" id="editCompany">
+    </div>
+    <div class="field">
+      <label>Comments</label>
+      <input type="text" id="editComments">
+    </div>
+    <div class="modalBtns">
+      <button id="modalCancel">Cancel</button>
+      <button id="modalSave">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileNameEl = document.getElementById('fileName');
+  const sampleBtn = document.getElementById('sampleBtn');
+  const templateBtn = document.getElementById('templateBtn');
+  const pdfBtn = document.getElementById('pdfBtn');
+  const downloadDataBtn = document.getElementById('downloadDataBtn');
+  const emptyEl = document.getElementById('empty');
+  const chartWrap = document.getElementById('chartWrap');
+  const svgHost = document.getElementById('svgHost');
+  const toolbar = document.getElementById('toolbar');
+  const statsEl = document.getElementById('stats');
+  const legendEl = document.getElementById('legend');
+  const statTotal = document.getElementById('statTotal');
+  const statFilled = document.getElementById('statFilled');
+  const statTbd = document.getElementById('statTbd');
+  const chartTitle = document.getElementById('chartTitle');
+  const chartMeta = document.getElementById('chartMeta');
+
+  let zoom = 1;
+  let currentRows = [];
+  let currentFilename = '';
+  let lastLayoutSize = { width: 800, height: 400 };
+
+  const HEADER_MAP = {
+    'role id': 'roleId', 'roleid': 'roleId',
+    'company': 'company',
+    'project role': 'projectRole', 'projectrole': 'projectRole', 'role': 'projectRole',
+    'employee name': 'employeeName', 'employeename': 'employeeName', 'employee': 'employeeName', 'name': 'employeeName',
+    'reporting manager': 'reportingManager', 'reportingmanager': 'reportingManager', 'manager': 'reportingManager',
+    'comments': 'comments', 'comment': 'comments', 'notes': 'comments'
+  };
+
+  function normalizeHeader(h){
+    return String(h || '').trim().toLowerCase()
+      .replace(/\(.*?\)/g, '')        // strip parenthetical notes e.g. "(Last Name, First Name)"
+      .replace(/[_\-]+/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+
+  function mapHeaderField(rawHeader){
+    const norm = normalizeHeader(rawHeader);
+    if(!norm) return null;
+    if(HEADER_MAP[norm]) return HEADER_MAP[norm]; // exact match first
+    // Fallback: keyword-based matching, order matters (most specific first)
+    if(norm.includes('role') && norm.includes('id')) return 'roleId';
+    if(norm.includes('employee')) return 'employeeName';
+    if(norm.includes('reporting') || norm.includes('manager')) return 'reportingManager';
+    if(norm.includes('project') && norm.includes('role')) return 'projectRole';
+    if(norm.includes('company')) return 'company';
+    if(norm.includes('comment') || norm.includes('note')) return 'comments';
+    if(norm === 'role') return 'projectRole';
+    if(norm.includes('name') && !norm.includes('company')) return 'employeeName';
+    return null;
+  }
+
+  function rowsFromSheetJSON(json){
+    if(!json.length){ rowsFromSheetJSON.matchedFields = new Set(); return []; }
+    const rawHeaders = Object.keys(json[0]);
+    const headerMap = {};
+    const usedFields = new Set();
+    rawHeaders.forEach(h => {
+      const mapped = mapHeaderField(h);
+      if(mapped && !usedFields.has(mapped)){ // first matching column wins if there's ambiguity
+        headerMap[h] = mapped;
+        usedFields.add(mapped);
+      }
+    });
+    rowsFromSheetJSON.matchedFields = usedFields;
+    return json.map(r => {
+      const out = { roleId:'', company:'', projectRole:'', employeeName:'', reportingManager:'', comments:'' };
+      Object.keys(r).forEach(k => {
+        const mapped = headerMap[k];
+        if(mapped) out[mapped] = (r[k] === undefined || r[k] === null) ? '' : String(r[k]).trim();
+      });
+      return out;
+    }).filter(r => r.roleId !== '' || r.projectRole !== '');
+  }
+
+  function handleFile(file){
+    fileNameEl.textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = function(e){
+      try{
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, {defval:''});
+        const rows = rowsFromSheetJSON(json);
+        if(!rows.length){
+          alert('Could not find recognizable columns. Check that your headers include Role ID, Company, Project Role, Employee Name, and Reporting Manager.');
+          return;
+        }
+        const matched = rowsFromSheetJSON.matchedFields || new Set();
+        const missing = ['roleId','projectRole','employeeName','reportingManager'].filter(f => !matched.has(f));
+        if(missing.length){
+          const niceNames = {roleId:'Role ID', projectRole:'Project Role', employeeName:'Employee Name', reportingManager:'Reporting Manager', company:'Company', comments:'Comments'};
+          alert('Warning: could not confidently match these columns: ' + missing.map(m => niceNames[m]).join(', ') +
+                '.\n\nThose fields will show blank for every row. Check your header text in row 1 of the sheet.');
+        }
+        render(rows, file.name);
+      }catch(err){
+        alert('Could not read that file. Make sure it is a valid .xlsx or .csv export.\n\n' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag');
+    if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => {
+    if(e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  templateBtn.addEventListener('click', () => {
+    const csv = 'Role ID,Company,Project Role,Employee Name,Reporting Manager,Comments\n' +
+      'R001,Acme Corp,VP Operations,,,\n' +
+      'R002,Acme Corp,Regional Manager,,R001,\n';
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'org_chart_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  sampleBtn.addEventListener('click', () => {
+    const sample = [
+      {roleId:'R001', company:'Acme Corp', projectRole:'VP Operations', employeeName:'Dana Whitfield', reportingManager:'', comments:''},
+      {roleId:'R002', company:'Acme Corp', projectRole:'Regional Manager, East', employeeName:'Marcus Ibe', reportingManager:'R001', comments:''},
+      {roleId:'R003', company:'Acme Corp', projectRole:'Regional Manager, West', employeeName:'', reportingManager:'R001', comments:'Backfill in progress'},
+      {roleId:'R004', company:'Acme Corp', projectRole:'Site Lead, Boston', employeeName:'Priya Anand', reportingManager:'R002', comments:''},
+      {roleId:'R005', company:'Acme Corp', projectRole:'Site Lead, NYC', employeeName:'', reportingManager:'R002', comments:''},
+      {roleId:'R006', company:'Acme Corp', projectRole:'Site Lead, Austin', employeeName:'Josh Renner', reportingManager:'R003', comments:''},
+      {roleId:'R007', company:'Acme Corp', projectRole:'Site Lead, Seattle', employeeName:'', reportingManager:'R003', comments:''},
+      {roleId:'R008', company:'Acme Corp', projectRole:'Analyst', employeeName:'Fatima Sy', reportingManager:'R004', comments:''},
+      {roleId:'R009', company:'Acme Corp', projectRole:'Analyst', employeeName:'', reportingManager:'R004', comments:''},
+      {roleId:'R010', company:'Acme Corp', projectRole:'Coordinator', employeeName:'Liam Foster', reportingManager:'R006', comments:''}
+    ];
+    fileNameEl.textContent = 'sample_data.csv';
+    render(sample, 'sample_data.csv');
+  });
+
+  function buildTree(rows){
+    const byId = {};
+    const byName = {}; // lowercased employee name -> roleId (real or virtual)
+    const virtualNodes = {}; // lowercased name -> virtual node object
+
+    rows.forEach(r => {
+      if(!r.roleId) return;
+      byId[r.roleId] = Object.assign({children:[]}, r);
+      if(r.employeeName){
+        const key = r.employeeName.trim().toLowerCase();
+        if(!byName[key]) byName[key] = r.roleId;
+      }
+    });
+
+    function getOrCreateVirtualManager(name){
+      const key = name.trim().toLowerCase();
+      if(byName[key]) return byName[key]; // a real person already has this name
+      if(virtualNodes[key]) return '__virtual__' + key;
+      virtualNodes[key] = {
+        roleId: '',
+        company: '',
+        projectRole: '',
+        employeeName: name.trim(),
+        reportingManager: '',
+        comments: '',
+        virtual: true,
+        children: []
+      };
+      byName[key] = '__virtual__' + key;
+      return '__virtual__' + key;
+    }
+
+    function resolveManagerId(mgrRaw, selfRoleId){
+      const mgr = (mgrRaw || '').trim();
+      if(!mgr) return null;
+      if(byId[mgr] && mgr !== selfRoleId) return mgr; // direct Role ID match
+      const key = mgr.toLowerCase();
+      if(byName[key] && byName[key] !== selfRoleId) return byName[key]; // name match (real or already-created virtual)
+      return getOrCreateVirtualManager(mgr); // create a placeholder box for a manager not in the roster
+    }
+
+    function lookup(id){
+      if(id.indexOf('__virtual__') === 0){
+        return virtualNodes[id.slice('__virtual__'.length)];
+      }
+      return byId[id];
+    }
+
+    const roots = [];
+    rows.forEach(r => {
+      if(!r.roleId) return;
+      const node = byId[r.roleId];
+      const mgrId = resolveManagerId(r.reportingManager, r.roleId);
+      if(mgrId){
+        lookup(mgrId).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+
+    // Every virtual node (a referenced-but-absent manager) becomes a root,
+    // since we have no data on who they report to.
+    Object.keys(virtualNodes).forEach(key => roots.push(virtualNodes[key]));
+
+    return roots;
+  }
+
+  const BOX_W = 210, BOX_H = 84, H_GAP = 28, V_GAP = 70;
+
+  function layout(roots){
+    let cursorX = 0;
+    let maxDepth = 0;
+
+    function place(node, depth){
+      maxDepth = Math.max(maxDepth, depth);
+      node.depth = depth;
+      if(!node.children.length){
+        node.x = cursorX;
+        cursorX += BOX_W + H_GAP;
+      } else {
+        node.children.forEach(c => place(c, depth+1));
+        const first = node.children[0], last = node.children[node.children.length-1];
+        node.x = (first.x + last.x) / 2;
+      }
+      node.y = depth * (BOX_H + V_GAP);
+    }
+    roots.forEach(r => place(r, 0));
+
+    // If multiple roots, they are already spaced by the cursor walk since place() is called per root sequentially.
+    const allNodes = [];
+    function collect(n){ allNodes.push(n); n.children.forEach(collect); }
+    roots.forEach(collect);
+
+    const maxX = Math.max(...allNodes.map(n => n.x)) + BOX_W;
+    const maxY = (maxDepth+1) * (BOX_H + V_GAP);
+    return { nodes: allNodes, width: maxX + 20, height: maxY + 20 };
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function truncate(s, n){
+    s = String(s || '');
+    return s.length > n ? s.slice(0, n-1) + '…' : s;
+  }
+
+  function renderSVG(layoutResult){
+    const { nodes, width, height } = layoutResult;
+    let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
+    svg += `<defs>
+      <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="7" stroke="#B54B3A" stroke-width="1.4" opacity="0.28"/>
+      </pattern>
+    </defs>`;
+
+    // connectors first (so boxes sit above)
+    nodes.forEach(n => {
+      n.children.forEach(c => {
+        const x1 = n.x + BOX_W/2, y1 = n.y + BOX_H;
+        const x2 = c.x + BOX_W/2, y2 = c.y;
+        const midY = y1 + (y2-y1)/2;
+        svg += `<path d="M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}" fill="none" stroke="#AEB4BD" stroke-width="1.5"/>`;
+      });
+    });
+
+    nodes.forEach(n => {
+      const filled = !!n.employeeName && !n.virtual;
+      const isVirtual = !!n.virtual;
+      const borderColor = isVirtual ? '#5B6572' : (filled ? '#2F6B57' : '#B54B3A');
+      const fillColor = isVirtual ? '#EEF0F2' : (filled ? '#EAF3EF' : '#FBEDE9');
+      const dash = filled ? '' : 'stroke-dasharray="4 3"';
+      const nameLabel = isVirtual ? esc(truncate(n.employeeName, 24)) : (filled ? esc(truncate(n.employeeName, 24)) : 'TBD');
+      const nameColor = isVirtual ? '#5B6572' : (filled ? '#1B2430' : '#B54B3A');
+      const tagLabel = isVirtual ? 'NOT IN ROSTER' : esc(n.roleId || '');
+      const roleLabel = isVirtual ? 'Manager' : (n.projectRole || 'Untitled role');
+
+      svg += `<g class="${isVirtual ? '' : 'node-group'}" ${isVirtual ? '' : `data-roleid="${esc(n.roleId)}"`}>
+        <rect x="${n.x}" y="${n.y}" width="${BOX_W}" height="${BOX_H}" rx="6"
+          fill="${fillColor}" stroke="${borderColor}" stroke-width="1.6" ${dash}/>`;
+      if(!filled && !isVirtual){
+        svg += `<rect x="${n.x}" y="${n.y}" width="${BOX_W}" height="${BOX_H}" rx="6" fill="url(#hatch)"/>`;
+      }
+      svg += `
+        <text x="${n.x+12}" y="${n.y+21}" font-size="10" font-weight="600" fill="${borderColor}" class="node-role" letter-spacing="0.03em">${tagLabel}</text>
+        <text x="${n.x+12}" y="${n.y+40}" font-size="13.5" font-weight="700" fill="#1B2430">${esc(truncate(roleLabel, 26))}</text>
+        <text x="${n.x+12}" y="${n.y+57}" font-size="12" font-weight="500" fill="${nameColor}">${nameLabel}</text>
+        <text x="${n.x+12}" y="${n.y+72}" font-size="10" fill="#5B6572">${esc(truncate(n.company || '', 30))}</text>
+      </g>`;
+    });
+
+    svg += '</svg>';
+    return svg;
+  }
+
+  function render(rows, filename){
+    currentRows = rows;
+    currentFilename = filename;
+    const roots = buildTree(rows);
+    if(!roots.length){
+      alert('No roles found after parsing. Double-check your Role ID column is filled in.');
+      return;
+    }
+    const layoutResult = layout(roots);
+    lastLayoutSize = { width: layoutResult.width, height: layoutResult.height };
+    svgHost.innerHTML = renderSVG(layoutResult);
+    svgHost.style.transform = `scale(${zoom})`;
+    svgHost.style.transformOrigin = 'top left';
+
+    emptyEl.style.display = 'none';
+    chartWrap.style.display = 'inline-block';
+    toolbar.style.display = 'flex';
+    statsEl.style.display = 'block';
+    legendEl.style.display = 'flex';
+    pdfBtn.disabled = false;
+    downloadDataBtn.disabled = false;
+
+    const total = rows.filter(r => r.roleId).length;
+    const filled = rows.filter(r => r.roleId && r.employeeName).length;
+    statTotal.textContent = total;
+    statFilled.textContent = filled;
+    statTbd.textContent = total - filled;
+
+    const company = rows.find(r => r.company)?.company || '';
+    chartTitle.textContent = company ? `${company} — Org Chart` : 'Org Chart';
+    chartMeta.textContent = `${filename} · ${total} roles · ${total - filled} open`;
+  }
+
+  document.getElementById('zoomIn').addEventListener('click', () => {
+    zoom = Math.min(zoom + 0.15, 2.5);
+    svgHost.style.transform = `scale(${zoom})`;
+  });
+  document.getElementById('zoomOut').addEventListener('click', () => {
+    zoom = Math.max(zoom - 0.15, 0.3);
+    svgHost.style.transform = `scale(${zoom})`;
+  });
+
+  pdfBtn.addEventListener('click', () => {
+    const svgEl = svgHost.querySelector('svg');
+    if(!svgEl){ alert('Nothing to export yet.'); return; }
+
+    pdfBtn.disabled = true;
+    pdfBtn.textContent = 'Exporting…';
+
+    const PADDING = 24;
+    const HEADER_H = 64;
+    const chartW = lastLayoutSize.width;
+    const chartH = lastLayoutSize.height;
+    const totalW = chartW + PADDING * 2;
+    const totalH = chartH + PADDING * 2 + HEADER_H;
+
+    const MAX_CANVAS_DIM = 14000;
+    const scale = Math.max(0.5, Math.min(2.5, MAX_CANVAS_DIM / Math.max(totalW, totalH)));
+
+    // Serialize the SVG to a data URL and let the browser rasterize it natively —
+    // far faster and more reliable than cloning the whole page (which is what
+    // caused the previous hang trying to re-fetch the Google Fonts stylesheet).
+    const svgString = new XMLSerializer().serializeToString(svgEl);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const timeoutId = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      pdfBtn.disabled = false;
+      pdfBtn.textContent = 'Export chart as PDF';
+      alert('PDF export timed out. Try again — if it keeps happening, the chart may be too large; try a smaller dataset.');
+    }, 20000);
+
+    const img = new Image();
+    img.onload = function(){
+      clearTimeout(timeoutId);
+      try{
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(totalW * scale);
+        canvas.height = Math.round(totalH * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, totalW, totalH);
+
+        ctx.fillStyle = '#1B2430';
+        ctx.font = 'bold 20px Arial, sans-serif';
+        ctx.fillText(chartTitle.textContent || 'Org Chart', PADDING, PADDING + 22);
+        ctx.fillStyle = '#5B6572';
+        ctx.font = '12px monospace';
+        ctx.fillText(chartMeta.textContent || '', PADDING, PADDING + 40);
+
+        ctx.drawImage(img, PADDING, PADDING + HEADER_H, chartW, chartH);
+        URL.revokeObjectURL(url);
+
+        const PX_TO_MM = 0.264583;
+        const MAX_PAGE_MM = 4800;
+        let wMM = Math.max(totalW * PX_TO_MM, 100);
+        let hMM = Math.max(totalH * PX_TO_MM, 100);
+        if(wMM > MAX_PAGE_MM || hMM > MAX_PAGE_MM){
+          const shrink = MAX_PAGE_MM / Math.max(wMM, hMM);
+          wMM *= shrink; hMM *= shrink;
+        }
+
+        const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+        if(typeof jsPDFCtor !== 'function'){
+          throw new Error('PDF library did not load correctly. Check your internet connection and try again.');
+        }
+        const pdf = new jsPDFCtor({
+          unit: 'mm',
+          format: [wMM, hMM],
+          orientation: wMM >= hMM ? 'landscape' : 'portrait'
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        pdf.addImage(imgData, 'JPEG', 0, 0, wMM, hMM);
+        pdf.save('org_chart.pdf');
+      }catch(err){
+        alert('PDF export failed: ' + err.message);
+      }finally{
+        pdfBtn.disabled = false;
+        pdfBtn.textContent = 'Export chart as PDF';
+      }
+    };
+    img.onerror = function(){
+      clearTimeout(timeoutId);
+      URL.revokeObjectURL(url);
+      pdfBtn.disabled = false;
+      pdfBtn.textContent = 'Export chart as PDF';
+      alert('Could not render the chart image for export. Try reloading the page and rebuilding the chart.');
+    };
+    img.src = url;
+  });
+
+  // ---- Click-to-edit ----
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalRoleTag = document.getElementById('modalRoleTag');
+  const editEmployeeName = document.getElementById('editEmployeeName');
+  const editProjectRole = document.getElementById('editProjectRole');
+  const editReportingManager = document.getElementById('editReportingManager');
+  const editCompany = document.getElementById('editCompany');
+  const editComments = document.getElementById('editComments');
+  const modalCancel = document.getElementById('modalCancel');
+  const modalSave = document.getElementById('modalSave');
+  let editingRoleId = null;
+
+  svgHost.addEventListener('click', (e) => {
+    const g = e.target.closest('.node-group');
+    if(!g) return;
+    const roleId = g.getAttribute('data-roleid');
+    const row = currentRows.find(r => r.roleId === roleId);
+    if(!row) return;
+    editingRoleId = roleId;
+    modalRoleTag.textContent = roleId;
+    editEmployeeName.value = row.employeeName || '';
+    editProjectRole.value = row.projectRole || '';
+    editReportingManager.value = row.reportingManager || '';
+    editCompany.value = row.company || '';
+    editComments.value = row.comments || '';
+    modalOverlay.classList.add('show');
+    editEmployeeName.focus();
+  });
+
+  function closeModal(){
+    modalOverlay.classList.remove('show');
+    editingRoleId = null;
+  }
+  modalCancel.addEventListener('click', closeModal);
+  modalOverlay.addEventListener('click', (e) => { if(e.target === modalOverlay) closeModal(); });
+  document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalOverlay.classList.contains('show')) closeModal(); });
+
+  modalSave.addEventListener('click', () => {
+    if(!editingRoleId) return;
+    const row = currentRows.find(r => r.roleId === editingRoleId);
+    if(!row) return;
+    row.employeeName = editEmployeeName.value.trim();
+    row.projectRole = editProjectRole.value.trim();
+    row.reportingManager = editReportingManager.value.trim();
+    row.company = editCompany.value.trim();
+    row.comments = editComments.value.trim();
+    closeModal();
+    render(currentRows, currentFilename);
+  });
+
+  downloadDataBtn.addEventListener('click', () => {
+    const headers = ['Role ID','Company','Project Role','Employee Name','Reporting Manager','Comments'];
+    const keys = ['roleId','company','projectRole','employeeName','reportingManager','comments'];
+    const escCsv = v => {
+      const s = String(v == null ? '' : v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    };
+    const lines = [headers.join(',')];
+    currentRows.forEach(r => {
+      lines.push(keys.map(k => escCsv(r[k])).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'org_chart_updated.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+})();
+</script>
+
+</body>
+</html>
