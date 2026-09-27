@@ -1,0 +1,90 @@
+from pathlib import Path
+import csv
+import re
+
+repo = Path.home() / "macsim-4dm4-lab1"
+lab = repo / "labs/lab1"
+
+with (lab / "UOP_No.csv").open(newline="") as f:
+    rows = [
+        [cell.strip() for cell in row]
+        for row in csv.reader(f, delimiter=";")
+        if row
+    ]
+
+benchmarks = rows[0][1:]
+uop_rows = rows[1:-1]
+totals = [int(value) for value in rows[-1][1:]]
+
+text = (repo / "def/uoplatency_x86.def").read_text()
+text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
+latencies = {
+    name: int(value)
+    for name, value in re.findall(
+        r"DEFUOP\s*\(\s*(UOP_\w+)\s*,\s*(\d+)\s*\)", text
+    )
+}
+
+averages = []
+instructions = []
+cycles = []
+sim_cpis = []
+
+for column, benchmark in enumerate(benchmarks):
+    weighted_cycles = 0
+    counted = 0
+
+    for row in uop_rows:
+        name = row[0]
+        count = int(row[column + 1])
+        counted += count
+        if count:
+            if name not in latencies:
+                raise ValueError(f"Missing latency for {name}")
+            weighted_cycles += count * latencies[name]
+
+    if counted != totals[column] or counted == 0:
+        raise ValueError(f"Invalid UOP total for {benchmark}")
+
+    average = weighted_cycles / counted
+
+    # Read only the end of the large log.
+    log = lab / "uop_logs" / f"{benchmark}_execution.debug"
+    with log.open("rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - 65536))
+        ending = f.read().decode("utf-8", errors="replace")
+
+    match = re.search(
+        r"Core\s+00\s+Core Total Finished:\s*"
+        r"insts:\s*(\d+)\s+cycles:\s*(\d+)",
+        ending,
+    )
+    if not match:
+        raise ValueError(f"Missing final summary for {benchmark}")
+
+    inst, cycle = map(int, match.groups())
+    sim_cpi = cycle / inst
+
+    averages.append(f"{average:.6f}")
+    instructions.append(inst)
+    cycles.append(cycle)
+    sim_cpis.append(f"{sim_cpi:.6f}")
+
+    print(
+        f"{benchmark}: weighted CPI={average:.6f}, "
+        f"MacSim CPI={sim_cpi:.6f}"
+    )
+
+rows.extend([
+    ["avg_CPI"] + averages,
+    ["total_instructions"] + instructions,
+    ["total_cycles"] + cycles,
+    ["MacSim_CPI"] + sim_cpis,
+])
+
+output = lab / "avg_CPI.csv"
+with output.open("w", newline="") as f:
+    csv.writer(f, delimiter=";").writerows(rows)
+
+print(f"Saved {output}")
