@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import re
+
+repo = Path.home() / "macsim-4dm4-lab1"
+uop_header = repo / "src" / "uop.h"
+uop_logs_dir = repo / "labs" / "lab1" / "uop_logs"
+csv_file = repo / "labs" / "lab1" / "UOP_No.csv"
+
+benchmarks = [
+    "median", "memBW", "memcpy", "memlatency", "mergesort",
+    "multiply", "qsort", "rsort", "spmv", "st-matmul",
+    "st-vvadd", "towers", "vvadd",
+]
+
+def get_uop_types():
+    """Parse uop.h itself for the ordered list of non-GPU UOP names,
+    instead of hardcoding a list we might transcribe wrong."""
+    text = uop_header.read_text()
+    types = []
+    seen = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("//"):
+            continue  # skip fully commented-out entries (e.g. UOP_SSMT0-3)
+        match = re.match(r"(UOP_\w+)\s*,", stripped)
+        if not match:
+            continue
+        name = match.group(1)
+        if name.startswith("UOP_GPU"):
+            continue  # per the PDF: ignore all GPU uops
+        if name in seen:
+            continue
+        seen.add(name)
+        types.append(name)
+    return types
+
+def count_uops(benchmark):
+    """Count each uop_type_name occurrence in one benchmark's debug file."""
+    debug_file = uop_logs_dir / f"{benchmark}_done_execution.debug"
+    counts = {}
+    text = debug_file.read_text()
+    for match in re.finditer(r"uop_type_name:(\S+)", text):
+        name = match.group(1)
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+def main():
+    uop_types = get_uop_types()
+    all_counts = {b: count_uops(b) for b in benchmarks}
+
+    # sanity check: warn if a debug file contains a UOP name we didn't expect
+    known = set(uop_types)
+    for bench, counts in all_counts.items():
+        unexpected = set(counts) - known
+        if unexpected:
+            print(f"WARNING: {bench} has unrecognized UOP types: {unexpected}")
+
+    lines = ["UOP; " + ", ".join(benchmarks)]
+    for uop in uop_types:
+        row = [uop] + [str(all_counts[b].get(uop, 0)) for b in benchmarks]
+        lines.append("; ".join(row))
+
+    total_row = ["total_UOPS"] + [str(sum(all_counts[b].values())) for b in benchmarks]
+    lines.append("; ".join(total_row))
+
+    csv_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote {csv_file}")
+
+if __name__ == "__main__":
+    main()
