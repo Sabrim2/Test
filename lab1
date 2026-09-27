@@ -14,21 +14,19 @@ benchmarks = [
 ]
 
 def get_uop_types():
-    """Parse uop.h itself for the ordered list of non-GPU UOP names,
-    instead of hardcoding a list we might transcribe wrong."""
     text = uop_header.read_text()
     types = []
     seen = set()
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("//"):
-            continue  # skip fully commented-out entries (e.g. UOP_SSMT0-3)
+            continue
         match = re.match(r"(UOP_\w+)\s*,", stripped)
         if not match:
             continue
         name = match.group(1)
         if name.startswith("UOP_GPU"):
-            continue  # per the PDF: ignore all GPU uops
+            continue
         if name in seen:
             continue
         seen.add(name)
@@ -36,27 +34,31 @@ def get_uop_types():
     return types
 
 def count_uops(benchmark):
-    """Count each uop_type_name occurrence in one benchmark's debug file."""
     debug_file = uop_logs_dir / f"{benchmark}_done_execution.debug"
     counts = {}
-    text = debug_file.read_text()
-    for match in re.finditer(r"uop_type_name:(\S+)", text):
-        name = match.group(1)
-        counts[name] = counts.get(name, 0) + 1
+    pattern = re.compile(rb"uop_type_name:(UOP_[A-Z0-9_]+)")
+
+    with debug_file.open("rb") as log:
+        for line in log:
+            match = pattern.search(line)
+            if match:
+                name = match.group(1).decode("ascii")
+                counts[name] = counts.get(name, 0) + 1
+
+    print(f"{benchmark}: {sum(counts.values()):,} UOPs", flush=True)
     return counts
 
 def main():
     uop_types = get_uop_types()
     all_counts = {b: count_uops(b) for b in benchmarks}
 
-    # sanity check: warn if a debug file contains a UOP name we didn't expect
     known = set(uop_types)
     for bench, counts in all_counts.items():
         unexpected = set(counts) - known
         if unexpected:
             print(f"WARNING: {bench} has unrecognized UOP types: {unexpected}")
 
-    lines = ["UOP; " + ", ".join(benchmarks)]
+    lines = ["; ".join(["UOP"] + benchmarks)]
     for uop in uop_types:
         row = [uop] + [str(all_counts[b].get(uop, 0)) for b in benchmarks]
         lines.append("; ".join(row))
