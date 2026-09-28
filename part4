@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+import csv
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Works when saved in the repository root or its bin directory.
+ROOT = next((p for p in Path(__file__).resolve().parents
+             if (p / 'build.py').is_file() and (p / 'def').is_dir()), None)
+if ROOT is None:
+    raise SystemExit('Save this script inside macsim-4dm4-lab1 or its bin folder.')
+BIN = ROOT / 'bin'
+OUT = ROOT / 'labs/lab1'
+LATENCY_FILE = ROOT / 'def/uoplatency_x86.def'
+GROUPS = {
+    'UOP_IADD': ['median', 'memcpy', 'memlatency', 'mergesort', 'multiply',
+                 'spmv', 'st-matmul', 'st-vvadd', 'towers', 'vvadd'],
+    'UOP_IMEM': ['memBW', 'qsort', 'rsort'],
+}
+# Integer policy: truncate 10 / (78/11) to 1 cycle.
+# Confirm this rounding convention with the course instructions.
+FACTOR_NUM, FACTOR_DEN = 78, 11
+
+with (OUT / 'avg_CPI.csv').open(newline='') as f:
+    rows = [[c.strip() for c in row] for row in csv.reader(f, delimiter=';')
+            if any(c.strip() for c in row)]
+by_name = {row[0]: row for row in rows[1:]}
+names = rows[0][1:]
+expected = {b for group in GROUPS.values() for b in group}
+if set(names) != expected or len(names) != len(expected):
+    raise SystemExit('CSV benchmark columns do not match the 13 expected benchmarks.')
+for key in ('total_UOPS', 'avg_CPI', 'total_instructions', 'total_cycles',
+            'MacSim_CPI', *GROUPS):
+    if key not in by_name:
+        raise SystemExit(f'Missing CSV row: {key}')
+if any(len(row) != len(rows[0]) for row in rows):
+    raise SystemExit('CSV rows have inconsistent column counts.')
+for name in names:
+    if not (ROOT / 'tools/benchmarks' / name / 'BM.txt').is_file():
+        raise SystemExit(f'Missing trace description for {name}')
+
+original = LATENCY_FILE.read_bytes()
+source = original.decode('utf-8')
+latencies = {name: int(value) for name, value in re.findall(
+    r'^\s*DEFUOP\s*\(\s*(UOP_\w+)\s*,\s*(\d+)\s*\)', source, re.M)}
+for uop in GROUPS:
+    if latencies.get(uop) != 10:
+        raise SystemExit(f'{uop} is not at its original latency of 10; restore it first.')
+
+# Validate the input counts before starting expensive simulations.
+for column, name in enumerate(names, 1):
+    counts = {key: int(row[column]) for key, row in by_name.items()
+              if key.startswith('UOP_')}
+    if sum(counts.values()) != int(by_name['total_UOPS'][column]):
+        raise SystemExit(f'UOP total mismatch for {name}')
+    if sum(counts.values()) <= 0:
+        raise SystemExit(f'Empty UOP counts for {name}')
+    for uop, count in counts.items():
+        if count and uop not in latencies:
+            raise SystemExit(f'Missing latency for {uop}')
+
+# Create a separate directory for each attempt; never overwrite old logs.
+from datetime import datetime
+LOGS = OUT / ('improved_logs_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+LOGS.mkdir(parents=True)
+(LOGS / 'original_uoplatency_x86.def').write_bytes(original)
+trace_list = BIN / 'trace_file_list'
+old_trace_list = trace_list.read_bytes() if trace_list.exists() else None
+if old_trace_list is not None:
+    (LOGS / 'original_trace_file_list').write_bytes(old_trace_list)
+results = {}
+new_latencies = {}
+
+def build():
+    subprocess.run([sys.executable, 'build.py', '--debug'], cwd=ROOT, check=True)
+
+def run_benchmark(name):
+    trace_list.write_text(f'1\n../tools/benchmarks/{name}/BM.txt\n')
+    path = LOGS / f'{name}_improved.log'
+    with path.open('wb') as log:
+        subprocess.run(['./macsim'], cwd=BIN, stdout=log,
+                       stderr=subprocess.STDOUT, check=True)
+    with path.open('rb') as log:
+        log.seek(0, 2)
+        log.seek(max(0, log.tell() - 65536))
+        ending = log.read().decode('utf-8', errors='replace')
+    match = re.search(r'Core\s+00\s+Core[ _]+Total\s+Finished:\s*'
+                      r'insts:\s*(\d+)\s+cycles:\s*(\d+)', ending)
+    if not match:
+        raise RuntimeError(f'Missing final summary: {path}')
+    inst, cycles = map(int, match.groups())
+    if inst <= 0:
+        raise RuntimeError(f'Zero instructions: {path}')
+    results[name] = [inst, cycles]
+    (LOGS / 'results.json').write_text(json.dumps({
+        'results': results, 'new_latencies': new_latencies}, indent=2))
+    print(f'{name}: {inst} instructions, {cycles} cycles', flush=True)
+
+print(f'Logs and backups: {LOGS}', flush=True)
+print('Using integer latency 1 cycle (truncated from 1.410256).', flush=True)
+try:
+    for uop, benchmarks in GROUPS.items():
+        new = max(1, latencies[uop] * FACTOR_DEN // FACTOR_NUM)
+        pattern = re.compile(r'(^\s*DEFUOP\s*\(\s*' + re.escape(uop)
+                             + r'\s*,\s*)(\d+)(\s*\))', re.M)
+        changed, matches = pattern.subn(
+            lambda m: m.group(1) + str(new) + m.group(3), source)
+        if matches != 1:
+            raise RuntimeError(f'Expected one definition of {uop}, found {matches}')
+        new_latencies[uop] = new
+        LATENCY_FILE.write_bytes(changed.encode('utf-8'))
+        print(f'{uop}: 10 -> {new}; rebuilding...', flush=True)
+        build()
+        for name in benchmarks:
+            run_benchmark(name)
+
+    for column, name in enumerate(names, 1):
+        improved = next(u for u, group in GROUPS.items() if name in group)
+        weighted = 0
+        for uop, row in by_name.items():
+            if not uop.startswith('UOP_'):
+                continue
+            count = int(row[column])
+            if count:
+                latency = new_latencies[improved] if uop == improved else latencies[uop]
+                weighted += count * latency
+        total = int(by_name['total_UOPS'][column])
+        inst, cycles = results[name]
+        by_name['avg_CPI'][column] = f'{weighted / total:.6f}'
+        by_name['total_instructions'][column] = str(inst)
+        by_name['total_cycles'][column] = str(cycles)
+        by_name['MacSim_CPI'][column] = f'{cycles / inst:.6f}'
+    # Keep a run-specific copy, plus the requested submission filename.
+    for target in (LOGS / 'avg_CPI_improved.csv', OUT / 'avg_CPI_improved.csv'):
+        with target.open('w', newline='') as f:
+            csv.writer(f, delimiter=';').writerows(rows)
+    print(f'Saved {OUT / "avg_CPI_improved.csv"}', flush=True)
+finally:
+    LATENCY_FILE.write_bytes(original)
+    if old_trace_list is None:
+        trace_list.unlink(missing_ok=True)
+    else:
+        trace_list.write_bytes(old_trace_list)
+    print('Original source and trace list restored; rebuilding original executable...', flush=True)
+    build()
