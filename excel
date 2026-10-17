@@ -1,0 +1,35 @@
+python3 - <<'PY'
+import csv
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+data = {}
+with open("../submission/width_sweep.csv", newline="") as f:
+    for row in csv.DictReader(f, delimiter=";"):
+        data.setdefault(row["Benchmark"], []).append(
+            (int(row["large_width"]), int(row["Cycles"]))
+        )
+
+assert len(data) == 13, "Expected 13 benchmarks"
+fig, axes = plt.subplots(4, 4, figsize=(16, 12))
+
+for ax, (bench, points) in zip(axes.flat, data.items()):
+    points.sort()
+    assert [w for w, _ in points] == [1, 2, 3, 4], bench
+    widths, cycles = zip(*points)
+    ax.plot(widths, cycles, "o-")
+    ax.set_title(bench)
+    ax.set_xticks([1, 2, 3, 4])
+    ax.set_xlabel("large_width")
+    ax.set_ylabel("Execution time (cycles)")
+    ax.grid(True, alpha=0.3)
+
+for ax in list(axes.flat)[len(data):]:
+    ax.set_visible(False)
+
+fig.tight_layout()
+fig.savefig("../submission/width_sweep.png", dpi=200)
+fig.savefig("../submission/width_sweep.pdf")
+print("Saved width_sweep.png and width_sweep.pdf")
+PY
