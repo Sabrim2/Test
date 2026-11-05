@@ -21,6 +21,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 VERSION = 1
+RUNNER_REVISION = '3 (checked against repository logs)'
 TOOLS = Path('tools/x86_trace_generator')
 BASE_CONFIG = 'lab3_1_8KB_64B_1_RANDOM_16KB_64_2_LRU.xml'
 BASE_BM = 'cache_test_4KB_4_1.c'
@@ -213,10 +214,12 @@ def trace_benchmark(repo, work, case):
     return directory
 
 
-def collect_statistics(parsed, cleaned):
-    """Match compile_and_run.sh and independently reconcile per-request outcomes."""
+def collect_statistics(parsed, cleaned, expected_requests=None):
+    """Count CPU requests and miss IDs; internal eviction IDs are not requests."""
     seen = set()
     outcomes = {}
+    arrivals = set()
+    completed = set()
     last = None
     misses = 0
     with parsed.open(encoding='utf-8', newline='') as src, cleaned.open(
@@ -232,7 +235,12 @@ def collect_statistics(parsed, cleaned):
             last = row
             if 'L1: Was the request a miss?,0,1,boolean' in line:
                 misses += 1
-            if row[2] == 'Miss?' and row[4] == '0':
+            label = row[2].strip()
+            if row[4] == '0' and label == 'add2q_l':
+                arrivals.add(int(row[0]))
+            if row[4] == '0' and label in ('respond', 'hitActn'):
+                completed.add(int(row[0]))
+            if label == 'Miss?' and row[4] == '0':
                 if row[6] != 'boolean' or row[5] not in ('0', '1'):
                     raise RuntimeError('Invalid miss outcome: ' + repr(row))
                 ident, value = int(row[0]), int(row[5])
@@ -241,14 +249,22 @@ def collect_statistics(parsed, cleaned):
                 outcomes[ident] = value
     if last is None or last[6] != 'cycle':
         raise RuntimeError('Missing final cycle row; simulator output may be incomplete.')
-    requests, cycles = int(last[0]), int(last[5])
+    original_requests, cycles = int(last[0]), int(last[5])
+    requests = len(arrivals)
     if requests <= 0 or cycles <= 0 or not 0 <= misses <= requests:
         raise RuntimeError('Invalid request, miss, or cycle counts.')
-    if set(outcomes) != set(range(1, requests + 1)) or sum(outcomes.values()) != misses:
-        raise RuntimeError('Per-request outcomes do not reconcile with the original lab summary '
-                           'method. Keep the logs and send them for inspection.')
+    # MSIProtocol emits Miss?=1 only on misses. Hits have hitActn records instead.
+    if not set(outcomes) <= arrivals or sum(outcomes.values()) != misses:
+        raise RuntimeError('Miss events do not reconcile with CPU arrivals. Keep the logs for inspection.')
+    if not arrivals <= completed:
+        raise RuntimeError('Some CPU requests have no response/hit completion event; log is incomplete.')
+    if expected_requests is not None and requests != expected_requests:
+        raise RuntimeError('Trace has {} requests but simulator processed {}.'.format(
+            expected_requests, requests))
     return {'requests': requests, 'hits': requests - misses, 'misses': misses,
-            'hit_rate': (requests - misses) / requests, 'cycles': cycles}
+            'hit_rate': (requests - misses) / requests, 'cycles': cycles,
+            'original_script_requests': original_requests,
+            'original_script_hits': original_requests - misses}
 
 
 def isolate_events(repo, raw, events, diagnostics):
@@ -258,8 +274,11 @@ def isolate_events(repo, raw, events, diagnostics):
     records instead of silently removing possible measurements.
     """
     with (repo / 'parser/glossary.csv').open(encoding='utf-8', newline='') as stream:
-        labels = {row['label'] for row in csv.DictReader(stream)}
-    labels.add('termina')
+        labels = {}
+        for row in csv.DictReader(stream):
+            exact = row['label']
+            labels.setdefault(exact.strip(), set()).add(exact)
+    labels.setdefault('termina', {'termina'})
     count = skipped = 0
     ended = False
     with raw.open(encoding='utf-8', errors='replace') as src, \
@@ -275,6 +294,7 @@ def isolate_events(repo, raw, events, diagnostics):
                 ended = True
                 continue
             fields = [field.strip() for field in text.split(',')]
+            exact_label = text.split(',')[2] if len(fields) >= 3 else ''
             numeric_id = re.fullmatch(r'-?\d+', fields[0]) is not None
             known_label = len(fields) >= 3 and fields[2] in labels
             if numeric_id or known_label:
@@ -286,6 +306,13 @@ def isolate_events(repo, raw, events, diagnostics):
                 if fields[2] not in labels and fields[4] not in ('-1', '-2'):
                     raise RuntimeError('Unknown event label at {}:{}: {}'.format(
                         raw, line_number, fields[2]))
+                candidates = labels.get(fields[2], {exact_label})
+                if exact_label in candidates:
+                    fields[2] = exact_label
+                elif len(candidates) == 1:
+                    fields[2] = next(iter(candidates))
+                else:
+                    raise RuntimeError('Ambiguous padded glossary label: ' + repr(exact_label))
                 dst.write(','.join(fields) + '\n')
                 count += 1
             else:
@@ -322,16 +349,28 @@ def run_case(repo, output, work, case):
         raw = attempt / 'events.raw.log'
         run_logged([repo / 'waf', '--run', waf_arg], repo,
                    attempt / 'simulator.stdout.log', raw)
+        stdout_text = (attempt / 'simulator.stdout.log').read_text(encoding='utf-8', errors='replace')
+        if not re.search(r'Cpu\s+0\s+Simulation End\s+@\s+processor cycle', stdout_text):
+            raise RuntimeError('Simulator did not report CPU completion. Inspect ' +
+                               str(attempt / 'simulator.stdout.log'))
         events = attempt / 'events.only.log'
         isolate_events(repo, raw, events, attempt / 'non_events.log')
         parsed = attempt / 'labdata_before_dedup.csv'
         run_logged([sys.executable, repo / 'lab_parser.py'], repo,
                    parsed, attempt / 'parser.stderr.log', stdin=events)
-        stats = collect_statistics(parsed, attempt / 'labdata.csv')
+        with (trace / 'trace_C0.trc.shared').open() as stream:
+            trace_requests = sum(1 for line in stream if line.strip())
+        stats = collect_statistics(parsed, attempt / 'labdata.csv', trace_requests)
         write_text(cached, json.dumps({'inputs': signature, 'statistics': stats}, indent=2))
     summary = ('Execution time: {cycles}\ntotal number of requests: {requests}\n'
                'total number of hits: {hits}\ntotal number of misses: {misses}\n'
                'hit rate: {hit_rate:.8f}\n').format(**stats)
+    if stats['original_script_requests'] != stats['requests']:
+        message = ('Original script would use the final message ID ({}) as the request count. '
+                   'Counted {} actual CPU requests instead; eviction messages also consume IDs.').format(
+                       stats['original_script_requests'], stats['requests'])
+        summary += message + '\n'
+        say('  ' + message)
     write_text(output / ('part{}/summaries'.format(case['part'])) / (case['id'] + '.txt'), summary)
     say('  {requests} requests, {hits} hits, {misses} misses, '
         '{hit_rate:.4%} hit rate, {cycles} cycles'.format(**stats))
@@ -372,8 +411,9 @@ so additional misses are possible even with a perfectly aligned array.
 Under independent uniform random victims and invalid-line-first allocation,
 the expected misses are approximately 256 + 64/(ways-1): 277.333 at 4 ways,
 260.267 at 16 ways, and 256.504 at 128 ways. This expectation also assumes aligned,
-array-only accesses; the simulator's replacement implementation is not verified
-by this script. Do not attribute every discrepancy solely to trace overhead.
+array-only accesses. The repository implements RANDOM with rand() % ways and
+checks for an invalid way before replacing a line. Do not attribute every
+discrepancy solely to trace overhead.
 
 The legacy benchmark filename is retained from the handout. Its actual defines
 are MEMORYPOOL_SIZE=16*KB, STRIDE=8*KB and NUM_ITERATIONS=1. The generated copy
@@ -385,6 +425,14 @@ with the mapping values in the supplied L1/L2 baseline configuration.
         text += '\nCSV rates are fractions (0.9375 = 93.75%). Execution time is simulated\n'
         text += 'cycles, using the final logged cycle as in compile_and_run.sh. Analytical\n'
         text += 'execution time is intentionally blank. Memory pool labels use KB = 1024 bytes.\n'
+        text += ('Requests are distinct L1 add2q_l events from core 0, checked against the\n'
+                 'input trace length. Misses are distinct Miss?=1 CPU request IDs after\n'
+                 'deduplication. Hits = requests - misses; the simulator does not emit\n'
+                 'Miss?=0 for every hit. A missed request can later have a hitActn event\n'
+                 'while completing, so hitActn alone is not used to count cache hits.\n'
+                 'The original script uses the last message ID as the request count.\n'
+                 'Eviction messages also consume IDs (CacheController.cpp), so that\n'
+                 'shortcut can overcount. Any difference is recorded in the summaries.\n')
         text += '\nMEASURED COMPARISON (only successfully completed cases)\n'
         theory = {row[0]: row for row in analytical_rows(part)}
         if not results[part]:
@@ -426,6 +474,7 @@ def execute(args):
         work.mkdir(parents=True, exist_ok=False)
         output.mkdir(parents=True, exist_ok=False)
         write_text(manifest_path, json.dumps(manifest, indent=2))
+    say('Runner revision: ' + RUNNER_REVISION)
     say('Run ID: ' + run_id)
     say('Submission files: ' + str(output))
     say('Logs and traces: ' + str(work))
