@@ -251,6 +251,54 @@ def collect_statistics(parsed, cleaned):
             'hit_rate': (requests - misses) / requests, 'cycles': cycles}
 
 
+def isolate_events(repo, raw, events, diagnostics):
+    """Keep build/runtime diagnostics out of the stock numeric event parser.
+
+    Preserve every input line in the raw log. Reject malformed event-looking
+    records instead of silently removing possible measurements.
+    """
+    with (repo / 'parser/glossary.csv').open(encoding='utf-8', newline='') as stream:
+        labels = {row['label'] for row in csv.DictReader(stream)}
+    labels.add('termina')
+    count = skipped = 0
+    ended = False
+    with raw.open(encoding='utf-8', errors='replace') as src, \
+            events.open('w', encoding='utf-8', newline='\n') as dst, \
+            diagnostics.open('w', encoding='utf-8', newline='\n') as other:
+        for line_number, line in enumerate(src, 1):
+            text = line.strip()
+            if not text:
+                continue
+            if text == 'End':
+                if not ended:
+                    dst.write('End\n')
+                ended = True
+                continue
+            fields = [field.strip() for field in text.split(',')]
+            numeric_id = re.fullmatch(r'-?\d+', fields[0]) is not None
+            known_label = len(fields) >= 3 and fields[2] in labels
+            if numeric_id or known_label:
+                valid = (len(fields) == 5 and numeric_id and
+                         all(re.fullmatch(r'-?\d+', fields[i]) for i in (1, 3, 4)))
+                if not valid or ended:
+                    raise RuntimeError('Malformed or misplaced event at {}:{}: {}'.format(
+                        raw, line_number, text))
+                if fields[2] not in labels and fields[4] not in ('-1', '-2'):
+                    raise RuntimeError('Unknown event label at {}:{}: {}'.format(
+                        raw, line_number, fields[2]))
+                dst.write(','.join(fields) + '\n')
+                count += 1
+            else:
+                other.write(line)
+                skipped += 1
+    if not count:
+        raise RuntimeError('No simulator events found in ' + str(raw) +
+                           '. Inspect simulator.stdout.log and the raw log.')
+    if skipped:
+        say('  Separated {} non-event log lines; preserved in {}'.format(skipped, diagnostics))
+    return count
+
+
 def run_case(repo, output, work, case):
     case_dir = work / 'simulations' / case['id']
     case_dir.mkdir(parents=True, exist_ok=True)
@@ -274,9 +322,11 @@ def run_case(repo, output, work, case):
         raw = attempt / 'events.raw.log'
         run_logged([repo / 'waf', '--run', waf_arg], repo,
                    attempt / 'simulator.stdout.log', raw)
+        events = attempt / 'events.only.log'
+        isolate_events(repo, raw, events, attempt / 'non_events.log')
         parsed = attempt / 'labdata_before_dedup.csv'
         run_logged([sys.executable, repo / 'lab_parser.py'], repo,
-                   parsed, attempt / 'parser.stderr.log', stdin=raw)
+                   parsed, attempt / 'parser.stderr.log', stdin=events)
         stats = collect_statistics(parsed, attempt / 'labdata.csv')
         write_text(cached, json.dumps({'inputs': signature, 'statistics': stats}, indent=2))
     summary = ('Execution time: {cycles}\ntotal number of requests: {requests}\n'
@@ -400,6 +450,10 @@ def execute(args):
         config_logs = work / ('configure_' + uuid.uuid4().hex[:8])
         run_logged([repo / 'waf', 'configure'], repo,
                    config_logs / 'stdout.log', config_logs / 'stderr.log')
+        say('Building simulator (compiler messages are saved separately)...')
+        build_logs = work / ('build_' + uuid.uuid4().hex[:8])
+        run_logged([repo / 'waf', 'build'], repo,
+                   build_logs / 'stdout.log', build_logs / 'stderr.log')
         for index, case in enumerate(cases, 1):
             say('[{}/8] {}'.format(index, case['id']))
             row = run_case(repo, output, work, case)
