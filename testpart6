@@ -1,0 +1,3 @@
+g++ -std=c++11 ../submission/part6_threshold_test.cpp RequestScheduler.cpp RequestQueue.cpp CommandQueue.cpp -o /tmp/part6_threshold_test
+
+/tmp/part6_threshold_test
